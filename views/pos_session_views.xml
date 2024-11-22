@@ -1,0 +1,13 @@
+<odoo>
+    <record id="view_pos_session_form_inherit" model="ir.ui.view">
+        <field name="name">pos.session.form.inherit</field>
+        <field name="model">pos.session</field>
+        <field name="inherit_id" ref="point_of_sale.view_pos_session_form"/>
+        <field name="arch" type="xml">
+            <!-- Añadir un botón al header -->
+            <xpath expr="//header" position="inside">
+                <button name="force_close" type="object" string="Recuperar" class="btn-primary" invisible ="1"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>
