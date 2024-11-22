@@ -20,5 +20,5 @@
 
     # any module necessary for this one to work correctly
     'depends': ['point_of_sale','queue_job'],
-    'data' : ['views/poss_session_views.xml'],
+    'data' : ['views/pos_session_views.xml'],
 }
