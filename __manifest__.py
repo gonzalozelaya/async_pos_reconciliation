@@ -1,25 +1,24 @@
 # -*- coding: utf-8 -*-
 {
-    'name': "my_module",
+    'name': "async_pos_reconciliation",
 
     'summary': """
-        Short (1 phrase/line) summary of the module's purpose, used as
-        subtitle on modules listing or apps.openerp.com""",
+       Makes the creation of account.move run on an jobrunner""",
 
     'description': """
-        Long description of module's purpose
+        akes the creation of account.move run on an jobrunner
     """,
 
-    'author': "My Company",
-    'website': "http://www.yourcompany.com",
+    'author': "Outsourcearg",
+    'website': "https://www.outsourcearg.com",
 
     # Categories can be used to filter modules in modules listing
     # Check https://github.com/odoo/odoo/blob/master/odoo/addons/base/module/module_data.xml
     # for the full list
-    'category': 'Uncategorized',
-    'version': '0.1',
+    'category': 'Point of sale',
+    'version': '1.0',
 
     # any module necessary for this one to work correctly
-    'depends': ['pos_session','queue_job'],
+    'depends': ['point_of_sale','queue_job'],
 
 }

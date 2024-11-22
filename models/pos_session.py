@@ -22,11 +22,11 @@ class PosSession(models.Model):
         ahora = datetime.utcnow()
         
         # Calcular las 0:00 del siguiente día en tu zona horaria (UTC-3)
-        ajuste_horario = timedelta(hours=-3)  # UTC-3
+        ajuste_horario = timedelta(hours=-2)  # UTC-3
         manana = ahora + timedelta(days=1)
         ejecucion_a_medianoche = datetime(manana.year, manana.month, manana.day, 0, 0, 0)
         # Encolar la creación del asiento contable
-        job = self.with_delay(priority=10,eta=ejecucion_a_medianoche - ajuste_horario)._async_create_account_move(
+        job = self.with_delay(priority=10,eta = ejecucion_a_medianoche - ajuste_horario)._async_create_account_move(
             balancing_account=balancing_account,
             amount_to_balance=amount_to_balance,
             bank_payment_method_diffs=bank_payment_method_diffs
@@ -38,36 +38,32 @@ class PosSession(models.Model):
 
     def _async_create_account_move(self, balancing_account=False, amount_to_balance=0, bank_payment_method_diffs=None):
         """Método para ejecutar asincrónicamente la creación de asientos."""
-        try:
-            _logger.info("Procesando creación de asiento contable en segundo plano.")
-            automation_ids = [10, 21, 17]  # Reemplazar con las IDs reales
-            Automation = self.env['base.automation']
-            
-            # Archivar las automatizaciones
-            automations = Automation.browse(automation_ids)
-            automations.action_archive()
-            account_move = self.env['account.move'].create({
-                'journal_id': self.config_id.journal_id.id,
-                'date': fields.Date.context_today(self),
-                'ref': self.name,
-            })
-            self.write({'move_id': account_move.id})
-    
-            data = {'bank_payment_method_diffs': bank_payment_method_diffs or {}}
-            data = self._accumulate_amounts(data)
-            data = self._create_non_reconciliable_move_lines(data)
-            data = self._create_bank_payment_moves(data)
-            data = self._create_pay_later_receivable_lines(data)
-            data = self._create_cash_statement_lines_and_cash_move_lines(data)
-            data = self._create_invoice_receivable_lines(data)
-            data = self._create_stock_output_lines(data)
-            if balancing_account and amount_to_balance:
-                data = self._create_balancing_line(data, balancing_account, amount_to_balance)
-    
-            self._finalize_session_after_async_process(data)
-        finally:
-            # Restaurar las automatizaciones
-            Automation.browse(automation_ids).write({'active': True})
+        _logger.info("Procesando creación de asiento contable en segundo plano.")
+        automation_ids = [10, 21, 17]  # Reemplazar con las IDs reales
+        Automation = self.env['base.automation']
+        
+        # Archivar las automatizaciones
+        automations = Automation.browse(automation_ids).sudo()
+        automations.action_archive()
+        account_move = self.env['account.move'].create({
+            'journal_id': self.config_id.journal_id.id,
+            'date': fields.Date.context_today(self),
+            'ref': self.name,
+        })
+        self.write({'move_id': account_move.id})
+
+        data = {'bank_payment_method_diffs': bank_payment_method_diffs or {}}
+        data = self._accumulate_amounts(data)
+        data = self._create_non_reconciliable_move_lines(data)
+        data = self._create_bank_payment_moves(data)
+        data = self._create_pay_later_receivable_lines(data)
+        data = self._create_cash_statement_lines_and_cash_move_lines(data)
+        data = self._create_invoice_receivable_lines(data)
+        data = self._create_stock_output_lines(data)
+        if balancing_account and amount_to_balance:
+            data = self._create_balancing_line(data, balancing_account, amount_to_balance)
+
+        self._finalize_session_after_async_process(data,automations)
 
     def _validate_session(self, balancing_account=False, amount_to_balance=0, bank_payment_method_diffs=None):
         """Cierra la sesión inmediatamente y lanza el procesamiento en segundo plano."""
@@ -97,7 +93,7 @@ class PosSession(models.Model):
         _logger.info("Sesión cerrada de forma inmediata. Trabajo en cola: %s", result['job_id'])
         return True
 
-    def _finalize_session_after_async_process(self, data):
+    def _finalize_session_after_async_process(self, data,automations):
         """Finaliza los procesos restantes después del cierre de la sesión."""
         _logger.info(f"Finalizando procesos pendientes después del cierre de la sesión. {self.move_id}")
         cash_difference_before_statements = self.cash_register_difference
@@ -118,5 +114,6 @@ class PosSession(models.Model):
             self.move_id.sudo().unlink()
 
         self.sudo().with_company(self.company_id)._reconcile_account_move_lines(data)
+        automations.action_unarchive()
         _logger.info("Procesos de reconciliación completados.")
         return
