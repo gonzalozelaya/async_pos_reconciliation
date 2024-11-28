@@ -45,11 +45,10 @@ class PosSession(models.Model):
     def _async_create_account_move(self , balancing_account=False, amount_to_balance=0,bank_payment_method_diffs=None):
         """Método para ejecutar asincrónicamente la creación de asientos."""
         _logger.info("Procesando creación de asiento contable en segundo plano.")
-        automation_ids = [10, 21, 17]  # Reemplazar con las IDs reales
         Automation = self.env['base.automation']
         payment_date = self.start_at.date() if self.start_at else fields.Date.context_today(self)
         # Archivar las automatizaciones
-        all_automations = Automation.search([]).sudo()  # Busca todas las automatizaciones
+        all_automations = Automation.sudo().search([])  # Busca todas las automatizaciones
         all_automations.action_archive()
         _logger.info("Todas las automatizaciones han sido archivadas.")
         account_move = self.env['account.move'].create({
