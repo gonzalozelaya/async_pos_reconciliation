@@ -104,7 +104,26 @@ class PosSession(models.Model):
         _logger.info(f"Finalizando procesos pendientes después del cierre de la sesión. {self.move_id}")
         cash_difference_before_statements = self.cash_register_difference
         self.sudo()._post_statement_difference(cash_difference_before_statements, False)
+        
+        total_debit = sum(line.debit for line in self.move_id.line_ids)
+        total_credit = sum(line.credit for line in self.move_id.line_ids)
+        difference = round(total_debit - total_credit, 2)
+        if difference != 0:
+            _logger.info(f"Diferencia detectada: {difference}. Creando línea adicional para balancear el asiento.")
+            balance_account = 346
+            if not balance_account:
+                raise UserError(_("No se configuró una cuenta para diferencias de balance en la compañía."))
 
+            # Crear la línea adicional
+            new_line_vals = {
+                'move_id': self.move_id.id,
+                'name': _("Balance automatico"),
+                'account_id': 346,
+                'debit': abs(difference) if difference < 0 else 0.0,
+                'credit': abs(difference) if difference > 0 else 0.0,
+                'partner_id': None,  # Agrega un partner si es necesario
+            }
+            self.env['account.move.line'].sudo().create(new_line_vals)
         if self.move_id.line_ids:
             self.move_id.sudo().with_company(self.company_id)._post()
             for dummy, amount_data in data['sales'].items():
