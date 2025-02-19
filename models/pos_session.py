@@ -160,14 +160,14 @@ class PosSession(models.Model):
                 'ref': f"Reversión de pago {payment.name}",
                 'line_ids': [
                     (0, 0, {
-                        'name': f"Reversión de {payment.name}",
+                        'name': f"Reversion: {payment.ref}",
                         'account_id': payment.force_outstanding_account_id.id,  # Revertir la cuenta por pagar
                         'debit': 0.0,
                         'credit': payment.amount,
                         'partner_id': payment.partner_id.id,
                     }),
                     (0, 0, {
-                        'name': f"Reversión de {payment.name}",
+                        'name': f"Reversion: {payment.ref}",
                         'account_id': journal_id.default_account_id.id,  # Cuenta desde donde vino el pago
                         'debit': payment.amount,
                         'credit': 0.0,
@@ -189,11 +189,11 @@ class PosSession(models.Model):
             cross_company_move = self.env['account.move'].sudo().create({
                 'journal_id': target_journal_id.id,  # Diario en la otra empresa
                 'date': fields.Date.context_today(self),
-                'ref': f"Registro en otra empresa de {payment.name}",
+                'ref': f"{self.company_id.name}",
                 'company_id': 1,  # Empresa destino
                 'line_ids': [
                     (0, 0, {
-                        'name': f"Registro en otra empresa de {payment.name}",
+                        'name': f"{self.company_id.name}-{payment.ref}",
                         'account_id': 860,  # Cuenta de la empresa destino
                         'debit': 0.0,
                         'credit': payment.amount,
@@ -201,7 +201,7 @@ class PosSession(models.Model):
                         'company_id': 1,
                     }),
                     (0, 0, {
-                        'name': f"Registro en otra empresa de {payment.name}",
+                        'name': f"{self.company_id.name}-{payment.ref}",
                         'account_id': target_journal_id.default_account_id.id,  # Cuenta en la empresa destino
                         'debit': payment.amount,
                         'credit': 0.0,
