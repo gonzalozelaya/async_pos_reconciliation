@@ -139,10 +139,80 @@ class PosSession(models.Model):
 
         self.sudo().with_company(self.company_id)._reconcile_account_move_lines(data)
         automations.action_unarchive()
+        transfer_journal = self.env.company.transfer_journal
+        if not transfer_journal:
+            raise UserError("La compañía no tiene seleccionada una cuenta de transferencias")
+        self.reverse_and_reconcile_payments(transfer_journal)
+        
         _logger.info("Procesos de reconciliación completados.")
         return
 
+    def reverse_and_reconcile_payments(self, journal_id):
+        """Crea asientos de cancelación para los pagos obtenidos y los concilia automáticamente."""
+        payments = self.get_payments_by_journal(journal_id)
+        _logger.info(f'Pagos a cuenta: {str(payments)}')
+        moves_to_reconcile = self.env['account.move']
+        for payment in payments:
+            # Crear asiento inverso
+            reversal_move = self.env['account.move'].create({
+                'journal_id': payment.journal_id.id,
+                'date': fields.Date.context_today(self),
+                'ref': f"Reversión de pago {payment.name}",
+                'line_ids': [
+                    (0, 0, {
+                        'name': f"Reversión de {payment.name}",
+                        'account_id': payment.force_outstanding_account_id.id,  # Revertir la cuenta por pagar
+                        'debit': 0.0,
+                        'credit': payment.amount,
+                        'partner_id': payment.partner_id.id,
+                    }),
+                    (0, 0, {
+                        'name': f"Reversión de {payment.name}",
+                        'account_id': journal_id.default_account_id.id,  # Cuenta desde donde vino el pago
+                        'debit': payment.amount,
+                        'credit': 0.0,
+                        'partner_id': payment.partner_id.id,
+                    }),
+                ]
+            })
+            target_journal_id = self.env['account.journal'].sudo().search([('id', '=', 292)])
+            reversal_move.action_post()  # Publicar el asiento
+            moves_to_reconcile |= reversal_move
+    
+            # Agregar la línea del pago original para conciliar
+            moves_to_reconcile |= payment.move_id
+            _logger.info(f"Moves to reconcile: {moves_to_reconcile}")
+            # Conciliación automática
+            moves_to_reconcile.line_ids.filtered(lambda l: l.account_id.id == payment.force_outstanding_account_id.id and not l.reconciled).reconcile()
 
+            # Crear un nuevo asiento en la otra empresa
+            cross_company_move = self.env['account.move'].sudo().create({
+                'journal_id': target_journal_id.id,  # Diario en la otra empresa
+                'date': fields.Date.context_today(self),
+                'ref': f"Registro en otra empresa de {payment.name}",
+                'company_id': 1,  # Empresa destino
+                'line_ids': [
+                    (0, 0, {
+                        'name': f"Registro en otra empresa de {payment.name}",
+                        'account_id': 860,  # Cuenta de la empresa destino
+                        'debit': 0.0,
+                        'credit': payment.amount,
+                        'partner_id': payment.partner_id.id,
+                        'company_id': 1,
+                    }),
+                    (0, 0, {
+                        'name': f"Registro en otra empresa de {payment.name}",
+                        'account_id': target_journal_id.default_account_id.id,  # Cuenta en la empresa destino
+                        'debit': payment.amount,
+                        'credit': 0.0,
+                        'partner_id': payment.partner_id.id,
+                        'company_id': 1,
+                    }),
+                ]
+            })
+            cross_company_move.action_post()  # Publicar el asiento en la otra empresa
+            _logger.info(f"Se creó el asiento en la empresa  {cross_company_move.id}")
+            
     
     def _create_bank_payment_moves(self, data):
         combine_receivables_bank = data.get('combine_receivables_bank')
@@ -222,3 +292,14 @@ class PosSession(models.Model):
         })
         account_payment.action_post()
         return account_payment.move_id.line_ids.filtered(lambda line: line.account_id == account_payment.destination_account_id)
+
+    
+    def get_payments_by_journal(self, journal_id):
+        """Obtiene los pagos de la sesión que están asociados a un diario específico."""
+        self.ensure_one()
+        payments = self.env['account.payment'].search([
+            ('pos_session_id', '=', self.id),
+            ('journal_id', 'in', [291]),
+            ('state', '=', 'posted')  # Solo pagos confirmados
+        ])
+        return payments
