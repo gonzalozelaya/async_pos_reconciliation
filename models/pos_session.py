@@ -4,6 +4,9 @@ import logging
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo  # Librería para manejar zonas horarias específicas
 from odoo.tools import float_is_zero, float_compare, convert
+from collections import defaultdict
+from odoo.tools.float_utils import float_split_str,float_round
+
 
 _logger = logging.getLogger(__name__)
 
@@ -151,8 +154,48 @@ class PosSession(models.Model):
         """Crea asientos de cancelación para los pagos obtenidos y los concilia automáticamente."""
         payments = self.get_payments_by_journal(journal_id)
         _logger.info(f'Pagos a cuenta: {str(payments)}')
+    
+        # Separar pagos positivos y negativos
+        positive_payments = payments.filtered(lambda p: p.amount_signed > 0)
+        negative_payments = payments.filtered(lambda p: p.amount_signed < 0)
+    
+        # Agrupar por partner
+        payment_groups = defaultdict(list)
+        for payment in positive_payments:
+            key = (payment.partner_id.id, float_round(payment.amount_signed, precision_digits=2))
+            payment_groups[key].append(payment)
+    
+        # Lista donde guardaremos los pagos que NO están cancelados
+        valid_payments = self.env['account.payment']
+    
+        # Procesar notas de crédito (pagos negativos)
+        used_ncs = set()  # Guardamos las NC usadas para evitar reutilizarlas
+        for nc in negative_payments:
+            partner_id = nc.partner_id.id
+            amount = float_round(abs(nc.amount_signed), precision_digits=2)
+    
+            key = (partner_id, amount)
+            if key in payment_groups and payment_groups[key]:
+                # Tomamos el primer pago disponible para cancelar
+                cancelled_payment = payment_groups[key].pop(0)
+                # No lo agregamos a 'valid_payments'
+                # Marcamos esta NC como usada
+                used_ncs.add(nc.id)
+            # Si no hay pago pendiente para cancelar, simplemente lo ignoramos
+    
+        # Lo que queda en payment_groups son pagos no cancelados
+        for group in payment_groups.values():
+            valid_payments |= self.env['account.payment'].concat(*group)
+    
+        _logger.info(f'Pagos válidos a procesar: {valid_payments.ids}')
+    
+        if not valid_payments:
+            _logger.info("No hay pagos válidos para procesar después de filtrar notas de crédito")
+            return
         moves_to_reconcile = self.env['account.move']
-        for payment in payments:
+        target_journal_id = self.env['account.journal'].sudo().browse(292)
+        target_company_id = 1  # ID de la empresa destino
+        for payment in valid_payments:
             # Crear asiento inverso
             reversal_move = self.env['account.move'].create({
                 'journal_id': payment.journal_id.id,
